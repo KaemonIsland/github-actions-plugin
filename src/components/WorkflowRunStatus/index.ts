@@ -14,6 +14,4 @@
  * limitations under the License.
  */
 
-export { plugin } from './plugin';
-export * from './api';
-export { Widget } from './components/Widget';
+export { WorkflowRunStatus } from './WorkflowRunStatus';
