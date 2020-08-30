@@ -15,42 +15,64 @@
  */
 import { useState } from 'react';
 import { useAsyncRetry } from 'react-use';
-import { Build } from './BuildListTable';
-import { githubActionsApiRef } from '../../api/GithubActionsApi';
-import { useApi, githubAuthApiRef } from '@backstage/core';
+import { WorkflowRun } from './WorkflowRunsTable/WorkflowRunsTable';
+import { githubActionsApiRef } from '../api/GithubActionsApi';
+import { useApi, githubAuthApiRef, errorApiRef } from '@backstage/core';
 import { ActionsListWorkflowRunsForRepoResponseData } from '@octokit/types';
 
-export function useBuilds({ repo, owner }: { repo: string; owner: string }) {
+export function useWorkflowRuns({
+  owner,
+  repo,
+  branch,
+}: {
+  owner: string;
+  repo: string;
+  branch?: string;
+}) {
   const api = useApi(githubActionsApiRef);
   const auth = useApi(githubAuthApiRef);
+
+  const errorApi = useApi(errorApiRef);
 
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(5);
 
-  const restartBuild = async () => {};
-
-  const { loading, value: builds, retry } = useAsyncRetry<Build[]>(async () => {
-    const token = await auth.getAccessToken(['repo', 'user']);
-
+  const { loading, value: runs, retry, error } = useAsyncRetry<
+    WorkflowRun[]
+  >(async () => {
+    const token = await auth.getAccessToken(['repo']);
     return (
       api
         // GitHub API pagination count starts from 1
-        .listWorkflowRuns({ token, owner, repo, pageSize, page: page + 1 })
+        .listWorkflowRuns({
+          token,
+          owner,
+          repo,
+          pageSize,
+          page: page + 1,
+          branch,
+        })
         .then(
-          (allBuilds: ActionsListWorkflowRunsForRepoResponseData): Build[] => {
-            setTotal(allBuilds.total_count);
+          (
+            workflowRunsData: ActionsListWorkflowRunsForRepoResponseData,
+          ): WorkflowRun[] => {
+            setTotal(workflowRunsData.total_count);
             // Transformation here
-            return allBuilds.workflow_runs.map(run => ({
-              buildName: run.head_commit.message,
+            return workflowRunsData.workflow_runs.map(run => ({
+              message: run.head_commit.message,
               id: `${run.id}`,
-              onRestartClick: () => {
-                api.reRunWorkflow({
-                  token,
-                  owner,
-                  repo,
-                  runId: run.id,
-                });
+              onReRunClick: async () => {
+                try {
+                  await api.reRunWorkflow({
+                    token,
+                    owner,
+                    repo,
+                    runId: run.id,
+                  });
+                } catch (e) {
+                  errorApi.post(e);
+                }
               },
               source: {
                 branchName: run.head_branch,
@@ -63,28 +85,28 @@ export function useBuilds({ repo, owner }: { repo: string; owner: string }) {
                 },
               },
               status: run.status,
-              buildUrl: run.url,
+              url: run.url,
+              githubUrl: run.html_url,
             }));
           },
         )
     );
-  }, [page, pageSize]);
+  }, [page, pageSize, repo, owner]);
 
-  const projectName = `${owner}/${repo}`;
   return [
     {
       page,
       pageSize,
       loading,
-      builds,
-      projectName,
+      runs,
+      projectName: `${owner}/${repo}`,
       total,
+      error,
     },
     {
-      builds,
+      runs,
       setPage,
       setPageSize,
-      restartBuild,
       retry,
     },
   ] as const;

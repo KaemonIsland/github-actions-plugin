@@ -14,25 +14,23 @@
  * limitations under the License.
  */
 import React, { FC } from 'react';
-import { Link, Typography, Box, IconButton } from '@material-ui/core';
+import { Link, Typography, Box, IconButton, Tooltip } from '@material-ui/core';
 import RetryIcon from '@material-ui/icons/Replay';
 import GitHubIcon from '@material-ui/icons/GitHub';
-import { Link as RouterLink } from 'react-router-dom';
-import {
-  StatusError,
-  StatusWarning,
-  StatusOK,
-  StatusPending,
-  StatusRunning,
-  Table,
-  TableColumn,
-} from '@backstage/core';
-import { useBuilds } from './useBuilds';
+import { Link as RouterLink, generatePath } from 'react-router-dom';
+import { Table, TableColumn } from '@backstage/core';
+import { useWorkflowRuns } from '../useWorkflowRuns';
+import { WorkflowRunStatus } from '../WorkflowRunStatus';
+import SyncIcon from '@material-ui/icons/Sync';
+import { buildRouteRef } from '../../plugin';
+import { useEntityCompoundName } from '@backstage/plugin-catalog';
+import { useProjectName } from '../useProjectName';
 
-export type Build = {
+export type WorkflowRun = {
   id: string;
-  buildName: string;
-  buildUrl?: string;
+  message: string;
+  url?: string;
+  githubUrl?: string;
   source: {
     branchName: string;
     commit: {
@@ -41,25 +39,7 @@ export type Build = {
     };
   };
   status: string;
-  onRestartClick: () => void;
-};
-
-// retried, canceled, infrastructure_fail, timedout, not_run, running, failed, queued, scheduled, not_running, no_tests, fixed, success
-const getStatusComponent = (status: string | undefined = '') => {
-  switch (status.toLowerCase()) {
-    case 'queued':
-    case 'scheduled':
-      return <StatusPending />;
-    case 'running':
-      return <StatusRunning />;
-    case 'failed':
-      return <StatusError />;
-    case 'success':
-      return <StatusOK />;
-    case 'canceled':
-    default:
-      return <StatusWarning />;
-  }
+  onReRunClick: () => void;
 };
 
 const generatedColumns: TableColumn[] = [
@@ -70,40 +50,45 @@ const generatedColumns: TableColumn[] = [
     width: '150px',
   },
   {
-    title: 'Build',
-    field: 'buildName',
+    title: 'Message',
+    field: 'message',
     highlight: true,
-    render: (row: Partial<Build>) => (
-      <Link component={RouterLink} to={`/github-actions/build/${row.id}`}>
-        {row.buildName}
+    render: (row: Partial<WorkflowRun>) => (
+      <Link
+        component={RouterLink}
+        to={generatePath(buildRouteRef.path, { id: row.id! })}
+      >
+        {row.message}
       </Link>
     ),
   },
   {
     title: 'Source',
-    render: (row: Partial<Build>) => (
-      <>
+    render: (row: Partial<WorkflowRun>) => (
+      <Typography variant="body2" noWrap>
         <p>{row.source?.branchName}</p>
         <p>{row.source?.commit.hash}</p>
-      </>
+      </Typography>
     ),
   },
   {
     title: 'Status',
-    render: (row: Partial<Build>) => (
+    width: '150px',
+
+    render: (row: Partial<WorkflowRun>) => (
       <Box display="flex" alignItems="center">
-        {getStatusComponent(row.status)}
-        <Box mr={1} />
-        <Typography variant="button">{row.status}</Typography>
+        <WorkflowRunStatus status={row.status} />
       </Box>
     ),
   },
   {
     title: 'Actions',
-    render: (row: Partial<Build>) => (
-      <IconButton onClick={row.onRestartClick}>
-        <RetryIcon />
-      </IconButton>
+    render: (row: Partial<WorkflowRun>) => (
+      <Tooltip title="Rerun workflow">
+        <IconButton onClick={row.onReRunClick}>
+          <RetryIcon />
+        </IconButton>
+      </Tooltip>
     ),
     width: '10%',
   },
@@ -112,7 +97,7 @@ const generatedColumns: TableColumn[] = [
 type Props = {
   loading: boolean;
   retry: () => void;
-  builds?: Build[];
+  runs?: WorkflowRun[];
   projectName: string;
   page: number;
   onChangePage: (page: number) => void;
@@ -121,13 +106,13 @@ type Props = {
   onChangePageSize: (pageSize: number) => void;
 };
 
-const BuildListTableView: FC<Props> = ({
+export const WorkflowRunsTableView: FC<Props> = ({
   projectName,
   loading,
   pageSize,
   page,
   retry,
-  builds,
+  runs,
   onChangePage,
   onChangePageSize,
   total,
@@ -140,13 +125,13 @@ const BuildListTableView: FC<Props> = ({
       page={page}
       actions={[
         {
-          icon: () => <RetryIcon />,
-          tooltip: 'Refresh Data',
+          icon: () => <SyncIcon />,
+          tooltip: 'Reload workflow runs',
           isFreeAction: true,
           onClick: () => retry(),
         },
       ]}
-      data={builds ?? []}
+      data={runs ?? []}
       onChangePage={onChangePage}
       onChangeRowsPerPage={onChangePageSize}
       title={
@@ -161,20 +146,29 @@ const BuildListTableView: FC<Props> = ({
   );
 };
 
-export const BuildListTable = ({
-  repo,
-  owner,
-}: {
-  repo: string;
-  owner: string;
-}) => {
-  const [tableProps, { retry, setPage, setPageSize }] = useBuilds({
-    repo,
+export const WorkflowRunsTable = () => {
+  let entityCompoundName = useEntityCompoundName();
+
+  if (!entityCompoundName.name) {
+    // TODO(shmidt-i): remove when is fully integrated
+    // into the entity view
+    entityCompoundName = {
+      kind: 'Component',
+      name: 'backstage',
+      namespace: 'default',
+    };
+  }
+
+  const { value: projectName, loading } = useProjectName(entityCompoundName);
+  const [owner, repo] = (projectName ?? '/').split('/');
+  const [tableProps, { retry, setPage, setPageSize }] = useWorkflowRuns({
     owner,
+    repo,
   });
   return (
-    <BuildListTableView
+    <WorkflowRunsTableView
       {...tableProps}
+      loading={loading || tableProps.loading}
       retry={retry}
       onChangePageSize={setPageSize}
       onChangePage={setPage}
