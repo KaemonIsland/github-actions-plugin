@@ -13,4 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export { WorkflowRunsTable, WorkflowRunsTableView } from './WorkflowRunsTable';
+
+import { createRouteRef } from '@backstage/core';
+
+// TODO(freben): This is just a demo route for now
+export const rootRouteRef = createRouteRef({
+  path: '',
+  title: 'GitHub Actions',
+});
+
+export const buildRouteRef = createRouteRef({
+  path: ':id',
+  params: ['id'],
+  title: 'GitHub Actions Workflow Run',
+});
